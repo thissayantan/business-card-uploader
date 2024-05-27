@@ -11,7 +11,7 @@ export default {
 
 		if (request.method === 'POST') {
 			const formData = await request.formData();
-			const file = formData.get('image');
+			const file = formData.get('file'); // Changed 'image' to 'file'
 
 			if (file instanceof File) {
 				const objectName = `image-${Date.now()}`;
