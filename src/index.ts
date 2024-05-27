@@ -1,53 +1,70 @@
-/**
- * Welcome to Cloudflare Workers! This is your first worker.
- *
- * - Run `npm run dev` in your terminal to start a development server
- * - Open a browser tab at http://localhost:8787/ to see your worker in action
- * - Run `npm run deploy` to publish your worker
- *
- * Bind resources to your worker in `wrangler.toml`. After adding bindings, a type definition for the
- * `Env` object can be regenerated with `npm run cf-typegen`.
- *
- * Learn more at https://developers.cloudflare.com/workers/
- */
-
-// Import the types needed for Cloudflare Workers and R2 bindings
 import { R2Bucket } from '@cloudflare/workers-types';
 
-// Define the environment variables as interface
 interface Env {
 	MY_BUCKET: R2Bucket;
 }
 
 export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
-		// Ensure that only POST requests are handled
+		const url = new URL(request.url);
+		const path = url.pathname.split('/')[1]; // Assumes path is like /image-12345
+
 		if (request.method === 'POST') {
 			const formData = await request.formData();
 			const file = formData.get('image');
 
-			// Check if the file is received and is of type 'File'
 			if (file instanceof File) {
 				const objectName = `image-${Date.now()}`;
 
 				try {
-					// Upload the file to the R2 bucket
 					await env.MY_BUCKET.put(objectName, file.stream(), {
 						httpMetadata: {
 							contentType: file.type,
 						},
 					});
 
-					return new Response(`File uploaded as ${objectName}`, { status: 200 });
+					const publicUrl = `${url.origin}/${objectName}`;
+					return new Response(JSON.stringify({ url: publicUrl }), {
+						status: 200,
+						headers: {
+							'Content-Type': 'application/json',
+						},
+					});
 				} catch (error) {
-					return new Response(`Failed to upload: ${error}`, { status: 500 });
+					return new Response(JSON.stringify({ error: `Failed to upload: ${error}` }), {
+						status: 500,
+						headers: {
+							'Content-Type': 'application/json',
+						},
+					});
 				}
 			} else {
-				return new Response('No file uploaded or wrong input type', { status: 400 });
+				return new Response(JSON.stringify({ error: 'No file uploaded or wrong input type' }), {
+					status: 400,
+					headers: {
+						'Content-Type': 'application/json',
+					},
+				});
+			}
+		} else if (request.method === 'GET' && path) {
+			try {
+				const object = await env.MY_BUCKET.get(path);
+				if (!object) {
+					return new Response('File not found', { status: 404 });
+				}
+				return new Response(object.body, {
+					status: 200,
+					headers: {
+						'Content-Type': object.httpMetadata.contentType,
+					},
+				});
+			} catch (error) {
+				return new Response(`Error retrieving file: ${error}`, { status: 500 });
 			}
 		}
 
-		// Default response for non-POST requests
-		return new Response('Send a POST request with an image', { status: 400 });
+		return new Response('Send a POST request with an image or a valid image file path', {
+			status: 400,
+		});
 	},
 };
